@@ -44,6 +44,7 @@ pipeline {
         // ── STAGE 1: Checkout ─────────────────────────────────────────────
         stage('Checkout') {
             steps {
+                sh 'apk add --no-cache git'
                 checkout scm
                 echo "Branch: ${env.GIT_BRANCH} | Commit: ${env.GIT_COMMIT[0..7]}"
                 sh 'git log --oneline -5'
