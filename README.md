@@ -10,3 +10,4 @@ git clone -b hello-world-maven https://github.com/vigneshsweekaran/hello-world.g
 mvn clean package
 ```
 ### War file is generated in target/hello-world.war
+# CI Trigger Test
