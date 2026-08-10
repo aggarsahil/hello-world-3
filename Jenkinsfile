@@ -52,7 +52,7 @@ pipeline {
  
         // ── STAGE 2: Build ────────────────────────────────────────────────
         stage('Build') {
-            tools { maven 'Maven-3.9' }
+            tools { maven 'Maven-3.9.11' }
             steps {
                 echo "Building ${env.APP_NAME} v${env.APP_VERSION}"
                 sh 'mvn clean compile -B -Dmaven.test.skip=true'
@@ -65,7 +65,7 @@ pipeline {
  
         // ── STAGE 3: Test ─────────────────────────────────────────────────
         stage('Test') {
-            tools { maven 'Maven-3.9' }
+            tools { maven 'Maven-3.9.11' }
             steps {
                 sh 'mvn test -B'
             }
@@ -95,7 +95,7 @@ pipeline {
  
         // ── STAGE 4: Quality Analysis ─────────────────────────────────────
         stage('Quality Analysis') {
-            tools { maven 'Maven-3.9' }
+            tools { maven 'Maven-3.9.11' }
             steps {
                 withSonarQubeEnv('SonarQube-Local') {
                     sh """
@@ -122,7 +122,7 @@ pipeline {
  
         // ── STAGE 6: Package & Archive ────────────────────────────────────
         stage('Package & Archive') {
-            tools { maven 'Maven-3.9' }
+            tools { maven 'Maven-3.9.11' }
             steps {
                 sh "mvn package -DskipTests -B -Drevision=${env.APP_VERSION}"
                 archiveArtifacts(artifacts: 'target/*.jar', fingerprint: true)
@@ -133,7 +133,7 @@ pipeline {
         // ── STAGE 7: Publish to Nexus (main branch only) ─────────────────
         stage('Publish Artifact') {
             when { branch 'main' }
-            tools { maven 'Maven-3.9' }
+            tools { maven 'Maven-3.9.11' }
             steps {
                 nexusArtifactUploader(
                     nexusVersion:  'nexus3',
