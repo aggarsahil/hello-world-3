@@ -119,14 +119,21 @@ pipeline {
         stage('Quality Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube-Local') {
-                    sh """
-                        mvn sonar:sonar \
-                          -Dsonar.projectKey=${env.APP_NAME} \
-                          -Dsonar.projectName="TechBuild ${env.APP_NAME}" \
-                          -Dsonar.projectVersion=${env.APP_VERSION} \
-                          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                          -B
-                    """
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonar-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
+                        sh """
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                        -Dsonar.token=${SONAR_TOKEN} \
+                        -Dsonar.projectKey=hello-world-3 \
+                        -Dsonar.projectName=hello-world-3 \
+                        -Dsonar.projectVersion=${APP_VERSION}
+                        """
+                    }
                 }
             }
         }
