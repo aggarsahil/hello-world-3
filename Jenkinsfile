@@ -1,4 +1,3 @@
-```groovy
 // ═══════════════════════════════════════════════════════════════════════════
 // Jenkinsfile — TechBuild Solutions / hello-world-2
 // Repository: https://github.com/jagdishmodi/hello-world-2.git
@@ -214,4 +213,3 @@ pipeline {
         }
     }
 }
-```
