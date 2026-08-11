@@ -17,7 +17,7 @@ pipeline {
 
     // ── Environment variables ───────────────────────────────────────────────
     environment {
-        APP_NAME     = 'hello-world-2'
+        APP_NAME     = 'hello-world-3'
         APP_VERSION  = "1.0.${env.BUILD_NUMBER}"
 
         // IMPORTANT:
