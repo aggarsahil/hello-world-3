@@ -11,7 +11,7 @@ pipeline {
     // ── Docker agent for isolated, reproducible builds ─────────────────────
     agent {
         docker {
-            image 'eclipse-temurin:17-jdk-alpine'
+            image 'maven:3.9.11-eclipse-temurin-17'
         }
     }
 
