@@ -1,95 +1,113 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Jenkinsfile — TechBuild Solutions / hello-world-2
-// Repository: https://github.com/jagdishmodi/hello-world-2.git
+// Jenkinsfile — TechBuild Solutions / hello-world-3
+// Pipeline: Checkout → Build → Test → Quality Analysis → Quality Gate
+//           → Package & Archive → Publish Artifact
 
-// Pipeline: Checkout → Build → Test → Quality Analysis → Archive → Notify
-// ═══════════════════════════════════════════════════════════════════════════
- 
 pipeline {
- 
-    // ── Docker agent for isolated, reproducible builds ─────────────────────
+
+    // ── Docker agent with Java 21 + Maven 3.9.11 ─────────────────────
     agent {
         docker {
             image 'maven:3.9.11-eclipse-temurin-21-alpine'
-            args '-v $HOME/.m2:/tmp/.m2'
+            args '-v $HOME/.m2:/root/.m2'
         }
     }
- 
-    // ── Environment variables ───────────────────────────────────────────────
+
+    // ── Environment variables ─────────────────────────────────────────
     environment {
         APP_NAME     = 'hello-world-3'
         APP_VERSION  = "1.0.${env.BUILD_NUMBER}"
-        MAVEN_OPTS = '-Xmx1024m -XX:+TieredCompilation -Dmaven.repo.local=.m2/repository'        
+        MAVEN_OPTS   = '-Xmx1024m -XX:+TieredCompilation'
         ARTIFACT_DIR = 'target'
     }
- 
-    // ── Pipeline-wide options ───────────────────────────────────────────────
+
+    // ── Pipeline options ──────────────────────────────────────────────
     options {
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '20'))
         timestamps()
-        // ansiColor('xterm')
     }
- 
-    // ── Build on push to any branch; deploy only from main ─────────────────
+
+    // ── Trigger on GitHub push ────────────────────────────────────────
     triggers {
-        githubPush()    // Requires GitHub plugin — responds to webhook events
+        githubPush()
     }
- 
-    // ══════════════════════════════════════════════════════════════════════
+
     stages {
- 
-        // ── STAGE 1: Checkout ─────────────────────────────────────────────
+
+        // ── STAGE 1: Checkout ─────────────────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "Branch: ${env.GIT_BRANCH} | Commit: ${env.GIT_COMMIT[0..7]}"
+
+                echo "Branch: ${env.GIT_BRANCH}"
+                echo "Commit: ${env.GIT_COMMIT[0..7]}"
+
+                sh 'git log --oneline -5'
             }
         }
- 
-        // ── STAGE 2: Build ────────────────────────────────────────────────
+
+        // ── STAGE 2: Build ────────────────────────────────────────────
         stage('Build') {
             steps {
                 echo "Building ${env.APP_NAME} v${env.APP_VERSION}"
+
+                sh 'java -version'
+                sh 'mvn -version'
+
                 sh 'mvn clean compile -B -Dmaven.test.skip=true'
             }
+
             post {
-                success { echo 'Compile successful — moving to Test stage.' }
-                failure { echo 'Compile FAILED — check pom.xml and source errors.' }
+                success {
+                    echo 'Compile successful — moving to Test stage.'
+                }
+
+                failure {
+                    echo 'Compile FAILED — check pom.xml and source errors.'
+                }
             }
         }
- 
-        // ── STAGE 3: Test ─────────────────────────────────────────────────
+
+        // ── STAGE 3: Test ─────────────────────────────────────────────
         stage('Test') {
             steps {
                 sh 'mvn test -B'
             }
+
             post {
                 always {
-                    // Publish JUnit test results regardless of pass/fail
-                    junit(testResults: 'target/surefire-reports/**/*.xml',
-                          allowEmptyResults: false)
+                    junit(
+                        testResults: 'target/surefire-reports/**/*.xml',
+                        allowEmptyResults: false
+                    )
                 }
+
                 unstable {
                     echo 'WARNING: Tests failed — build marked UNSTABLE.'
-                    // Enforce 80% pass rate:
+
                     script {
                         def results = currentBuild.rawBuild.getAction(
-                            hudson.tasks.test.AbstractTestResultAction.class)
-                        if (results) {
-                            def passRate = (results.totalCount - results.failCount) /
-                                           results.totalCount * 100
+                            hudson.tasks.test.AbstractTestResultAction.class
+                        )
+
+                        if (results && results.totalCount > 0) {
+                            def passRate =
+                                (results.totalCount - results.failCount) /
+                                results.totalCount * 100
+
                             if (passRate < 80) {
-                                error("Test pass rate ${passRate.round(1)}% is below 80% threshold!")
+                                error(
+                                    "Test pass rate ${passRate.round(1)}% is below 80% threshold!"
+                                )
                             }
                         }
                     }
                 }
             }
         }
- 
-        // ── STAGE 4: Quality Analysis ─────────────────────────────────────
+
+        // ── STAGE 4: Quality Analysis ─────────────────────────────────
         stage('Quality Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube-Local') {
@@ -104,88 +122,111 @@ pipeline {
                 }
             }
         }
- 
-        // ── STAGE 5: Quality Gate ─────────────────────────────────────────
+
+        // ── STAGE 5: Quality Gate ─────────────────────────────────────
         stage('Quality Gate') {
             agent none
+
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
- 
-        // ── STAGE 6: Package & Archive ────────────────────────────────────
+
+        // ── STAGE 6: Package & Archive ────────────────────────────────
         stage('Package & Archive') {
             steps {
                 sh "mvn package -DskipTests -B -Drevision=${env.APP_VERSION}"
-                archiveArtifacts(artifacts: 'target/*.jar', fingerprint: true)
-                echo "Artifact archived: ${env.APP_NAME}-${env.APP_VERSION}.jar"
+
+                archiveArtifacts(
+                    artifacts: 'target/*.jar',
+                    fingerprint: true
+                )
+
+                echo "Artifact archived for ${env.APP_NAME} v${env.APP_VERSION}"
             }
         }
- 
-        // ── STAGE 7: Publish to Nexus (main branch only) ─────────────────
+
+        // ── STAGE 7: Publish to Nexus ─────────────────────────────────
+        // Your repository currently uses master, not main.
         stage('Publish Artifact') {
-            when { branch 'master' }
+            when {
+                branch 'master'
+            }
+
             steps {
                 nexusArtifactUploader(
-                    nexusVersion:  'nexus3',
-                    protocol:      'http',
-                    nexusUrl:      'localhost:8081',
-                    groupId:       'io.techbuild',
-                    version:       env.APP_VERSION,
-                    repository:    'techbuild-releases',
+                    nexusVersion: 'nexus3',
+                    protocol: 'http',
+                    nexusUrl: 'localhost:8081',
+                    groupId: 'io.techbuild',
+                    version: env.APP_VERSION,
+                    repository: 'techbuild-releases',
                     credentialsId: 'nexus-creds',
+
                     artifacts: [[
                         artifactId: env.APP_NAME,
                         classifier: '',
-                        file:       "target/${env.APP_NAME}-${env.APP_VERSION}.jar",
-                        type:       'jar'
+                        file: "target/${env.APP_NAME}-${env.APP_VERSION}.jar",
+                        type: 'jar'
                     ]]
                 )
             }
         }
- 
-    }    // end stages
- 
-    // ── Post-build actions ─────────────────────────────────────────────────
+    }
+
+    // ── Post-build actions ─────────────────────────────────────────────
     post {
+
         success {
             echo "PIPELINE SUCCESS — ${env.APP_NAME} v${env.APP_VERSION}"
+
             slackSend(
                 channel: '#ci-notifications',
-                color:   'good',
+                color: 'good',
                 message: "BUILD PASSED: ${env.APP_NAME} v${env.APP_VERSION} | ${env.BUILD_URL}"
             )
+
             emailext(
-                to:       'aggarsahil3@gmail.com',
-                subject:  "BUILD PASSED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body:     "Successful build for ${env.APP_NAME} v${env.APP_VERSION}\nURL: ${env.BUILD_URL}"
+                to: 'aggarsahil3@gmail.com',
+                subject: "BUILD PASSED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """Successful build for ${env.APP_NAME} v${env.APP_VERSION}
+
+URL: ${env.BUILD_URL}
+"""
             )
         }
+
         failure {
             echo "PIPELINE FAILED — check logs at ${env.BUILD_URL}"
+
             slackSend(
                 channel: '#ci-notifications',
-                color:   'danger',
+                color: 'danger',
                 message: "BUILD FAILED: ${env.APP_NAME} #${env.BUILD_NUMBER} | ${env.BUILD_URL}"
             )
+
             emailext(
-                to:       'aggarsahil3@gmail.com',
-                subject:  "BUILD FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body:     "Build ${env.BUILD_NUMBER} failed.\nConsole: ${env.BUILD_URL}console"
+                to: 'aggarsahil3@gmail.com',
+                subject: "BUILD FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """Build ${env.BUILD_NUMBER} failed.
+
+Console: ${env.BUILD_URL}console
+"""
             )
         }
+
         unstable {
             slackSend(
                 channel: '#ci-notifications',
-                color:   'warning',
+                color: 'warning',
                 message: "BUILD UNSTABLE: ${env.APP_NAME} #${env.BUILD_NUMBER} — test failures | ${env.BUILD_URL}"
             )
         }
+
         always {
-            cleanWs()    // Clean workspace after every build to free disk space
+            cleanWs()
         }
     }
- 
-}    // end pipeline
+}
