@@ -1,52 +1,53 @@
+```groovy
 // ═══════════════════════════════════════════════════════════════════════════
-// Jenkinsfile — hello-world-3
+// Jenkinsfile — TechBuild Solutions / hello-world-2
+// Repository: https://github.com/jagdishmodi/hello-world-2.git
+//
 // Pipeline: Checkout → Build → Test → Quality Analysis → Quality Gate
 //           → Package & Archive → Publish Artifact
-// Java: 21
-// Maven: 3.9.11
 // ═══════════════════════════════════════════════════════════════════════════
 
 pipeline {
 
-    // ── Docker agent with Java 21 + Maven 3.9.11 ─────────────────────────
+    // ── Docker agent for isolated, reproducible builds ─────────────────────
     agent {
         docker {
-            image 'maven:3.9.11-eclipse-temurin-21-alpine'
-
-            // Mount Jenkins Maven repository and explicitly set HOME
-            args '-v /var/lib/jenkins/.m2:/root/.m2'
+            image 'eclipse-temurin:17-jdk-alpine'
         }
     }
 
-    // ── Environment ──────────────────────────────────────────────────────
+    // ── Environment variables ───────────────────────────────────────────────
     environment {
-        APP_NAME    = 'hello-world-3'
-        APP_VERSION = "1.0.${env.BUILD_NUMBER}"
+        APP_NAME     = 'hello-world-2'
+        APP_VERSION  = "1.0.${env.BUILD_NUMBER}"
 
-        // Explicit writable Maven repository
-        MAVEN_OPTS = '-Xmx1024m -XX:+TieredCompilation -Dmaven.repo.local=/root/.m2/repository'
+        // IMPORTANT:
+        // Store Maven dependencies inside the Jenkins workspace.
+        // This avoids the /root/.m2 permission problem inside the container.
+        MAVEN_OPTS   = '-Xmx1024m -XX:+TieredCompilation -Dmaven.repo.local=.m2/repository'
 
+        SONAR_URL    = 'http://sonarqube:9000'
         ARTIFACT_DIR = 'target'
     }
 
-    // ── Pipeline options ─────────────────────────────────────────────────
+    // ── Pipeline-wide options ───────────────────────────────────────────────
     options {
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '20'))
         timestamps()
+        ansiColor('xterm')
     }
 
-    // ── GitHub push trigger ──────────────────────────────────────────────
+    // ── Build on GitHub push ────────────────────────────────────────────────
     triggers {
         githubPush()
     }
 
+    // ══════════════════════════════════════════════════════════════════════
     stages {
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 1 — CHECKOUT
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 1: Checkout ─────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
@@ -56,21 +57,14 @@ pipeline {
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 2 — BUILD
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 2: Build ────────────────────────────────────────────────
         stage('Build') {
             steps {
-
                 echo "Building ${env.APP_NAME} v${env.APP_VERSION}"
 
-                // Verify Java 21
                 sh 'java -version'
-
-                // Verify Maven
                 sh 'mvn -version'
 
-                // Build
                 sh 'mvn clean compile -B -Dmaven.test.skip=true'
             }
 
@@ -85,9 +79,7 @@ pipeline {
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 3 — TEST
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 3: Test ─────────────────────────────────────────────────
         stage('Test') {
             steps {
                 sh 'mvn test -B'
@@ -100,17 +92,35 @@ pipeline {
                         allowEmptyResults: true
                     )
                 }
+
+                unstable {
+                    echo 'WARNING: Tests failed — build marked UNSTABLE.'
+
+                    script {
+                        def results = currentBuild.rawBuild.getAction(
+                            hudson.tasks.test.AbstractTestResultAction.class
+                        )
+
+                        if (results && results.totalCount > 0) {
+                            def passRate =
+                                (results.totalCount - results.failCount) /
+                                results.totalCount * 100
+
+                            if (passRate < 80) {
+                                error(
+                                    "Test pass rate ${passRate.round(1)}% is below 80% threshold!"
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 4 — QUALITY ANALYSIS
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 4: Quality Analysis ─────────────────────────────────────
         stage('Quality Analysis') {
             steps {
-
                 withSonarQubeEnv('SonarQube-Local') {
-
                     sh """
                         mvn sonar:sonar \
                           -Dsonar.projectKey=${env.APP_NAME} \
@@ -123,137 +133,85 @@ pipeline {
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 5 — QUALITY GATE
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 5: Quality Gate ─────────────────────────────────────────
         stage('Quality Gate') {
-
             agent none
 
             steps {
-
                 timeout(time: 5, unit: 'MINUTES') {
-
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 6 — PACKAGE & ARCHIVE
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 6: Package & Archive ───────────────────────────────────
         stage('Package & Archive') {
-
             steps {
+                sh "mvn package -DskipTests -B -Drevision=${env.APP_VERSION}"
 
-                sh """
-                    mvn package \
-                      -DskipTests \
-                      -Drevision=${env.APP_VERSION} \
-                      -B
-                """
-
+                // Your pom.xml uses <packaging>war</packaging>,
+                // therefore archive the WAR instead of a JAR.
                 archiveArtifacts(
-                    artifacts: 'target/*.war,target/*.jar',
-                    fingerprint: true,
-                    allowEmptyArchive: false
+                    artifacts: 'target/*.war',
+                    fingerprint: true
                 )
 
                 echo "Artifact archived successfully."
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 7 — PUBLISH ARTIFACT
-        // ════════════════════════════════════════════════════════════════
+        // ── STAGE 7: Publish to Nexus (main branch only) ────────────────
         stage('Publish Artifact') {
-
             when {
-                branch 'master'
+                branch 'main'
             }
 
             steps {
-
                 nexusArtifactUploader(
-                    nexusVersion: 'nexus3',
-                    protocol: 'http',
-                    nexusUrl: 'localhost:8081',
-                    groupId: 'io.techbuild',
-                    version: env.APP_VERSION,
-                    repository: 'techbuild-releases',
+                    nexusVersion:  'nexus3',
+                    protocol:      'http',
+                    nexusUrl:      'localhost:8081',
+                    groupId:       'io.techbuild',
+                    version:       env.APP_VERSION,
+                    repository:    'techbuild-releases',
                     credentialsId: 'nexus-creds',
 
                     artifacts: [[
                         artifactId: env.APP_NAME,
                         classifier: '',
-                        file: "target/${env.APP_NAME}-${env.APP_VERSION}.war",
-                        type: 'war'
+                        file:       "target/${env.APP_NAME}-${env.APP_VERSION}.war",
+                        type:       'war'
                     ]]
                 )
             }
         }
-    }
 
-    // ════════════════════════════════════════════════════════════════════
-    // POST BUILD
-    // ════════════════════════════════════════════════════════════════════
+    } // end stages
 
+    // ── Post-build actions ─────────────────────────────────────────────────
     post {
 
         success {
-
             echo "PIPELINE SUCCESS — ${env.APP_NAME} v${env.APP_VERSION}"
 
-            slackSend(
-                channel: '#ci-notifications',
-                color: 'good',
-                message: "BUILD PASSED: ${env.APP_NAME} v${env.APP_VERSION} | ${env.BUILD_URL}"
-            )
-
-            emailext(
-                to: 'aggarsahil3@gmail.com',
-                subject: "BUILD PASSED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """Successful build for ${env.APP_NAME} v${env.APP_VERSION}
-
-URL:
-${env.BUILD_URL}
-"""
-            )
+            // Slack/email removed temporarily because they are not configured
+            // on this Jenkins instance.
         }
 
         failure {
-
             echo "PIPELINE FAILED — check logs at ${env.BUILD_URL}"
 
-            slackSend(
-                channel: '#ci-notifications',
-                color: 'danger',
-                message: "BUILD FAILED: ${env.APP_NAME} #${env.BUILD_NUMBER} | ${env.BUILD_URL}"
-            )
-
-            emailext(
-                to: 'aggarsahil3@gmail.com',
-                subject: "BUILD FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """Build ${env.BUILD_NUMBER} failed.
-
-Console:
-${env.BUILD_URL}console
-"""
-            )
+            // Slack/email removed temporarily because they are not configured
+            // on this Jenkins instance.
         }
 
         unstable {
-
-            slackSend(
-                channel: '#ci-notifications',
-                color: 'warning',
-                message: "BUILD UNSTABLE: ${env.APP_NAME} #${env.BUILD_NUMBER} | ${env.BUILD_URL}"
-            )
+            echo "PIPELINE UNSTABLE — ${env.APP_NAME} #${env.BUILD_NUMBER}"
         }
 
         always {
-
             cleanWs()
         }
     }
 }
+```
