@@ -10,8 +10,8 @@ pipeline {
     // ── Docker agent for isolated, reproducible builds ─────────────────────
     agent {
         docker {
-            image 'eclipse-temurin:17-jdk-alpine'
-            args  '-v $HOME/.m2:/root/.m2'    // Cache Maven dependencies between builds
+            image 'maven:3.9.11-eclipse-temurin-21-alpine'
+            args '-v $HOME/.m2:/root/.m2'
         }
     }
  
