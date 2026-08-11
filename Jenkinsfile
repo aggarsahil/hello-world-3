@@ -1,4 +1,3 @@
-```groovy
 // ═══════════════════════════════════════════════════════════════════════════
 // Jenkinsfile — hello-world-3
 // Pipeline: Checkout → Build → Test → Quality Analysis → Quality Gate
