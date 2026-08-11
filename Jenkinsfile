@@ -17,7 +17,7 @@ pipeline {
  
     // ── Environment variables ───────────────────────────────────────────────
     environment {
-        APP_NAME     = 'hello-world-2'
+        APP_NAME     = 'hello-world-3'
         APP_VERSION  = "1.0.${env.BUILD_NUMBER}"
         MAVEN_OPTS   = '-Xmx1024m -XX:+TieredCompilation'
         SONAR_URL    = 'http://sonarqube:9000'
@@ -44,10 +44,8 @@ pipeline {
         // ── STAGE 1: Checkout ─────────────────────────────────────────────
         stage('Checkout') {
             steps {
-                sh 'apk add --no-cache git'
                 checkout scm
                 echo "Branch: ${env.GIT_BRANCH} | Commit: ${env.GIT_COMMIT[0..7]}"
-                sh 'git log --oneline -5'
             }
         }
  
@@ -166,7 +164,7 @@ pipeline {
                 message: "BUILD PASSED: ${env.APP_NAME} v${env.APP_VERSION} | ${env.BUILD_URL}"
             )
             emailext(
-                to:       'devteam@techbuild.io',
+                to:       'aggarsahil3@gmail.com',
                 subject:  "BUILD PASSED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body:     "Successful build for ${env.APP_NAME} v${env.APP_VERSION}\nURL: ${env.BUILD_URL}"
             )
@@ -179,7 +177,7 @@ pipeline {
                 message: "BUILD FAILED: ${env.APP_NAME} #${env.BUILD_NUMBER} | ${env.BUILD_URL}"
             )
             emailext(
-                to:       'devteam@techbuild.io',
+                to:       'aggarsahil3@gmail.com',
                 subject:  "BUILD FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body:     "Build ${env.BUILD_NUMBER} failed.\nConsole: ${env.BUILD_URL}console"
             )
